@@ -1,0 +1,75 @@
+cff-version: 1.2.0
+title: dermal-morphometry
+message: >-
+  If you use this software, please cite both the associated research article
+  and this software record.
+type: software
+authors:
+  - family-names: Elmi
+    given-names: Maryam Mitra
+    affiliation: >-
+      Research Center of Cellular and Molecular Biology, Health Research Center,
+      Babol University of Medical Sciences, Babol, Iran
+  - family-names: Elmi
+    given-names: Fatemeh
+    affiliation: >-
+      Department of Marine Chemistry, Faculty of Marine & Environmental Sciences,
+      University of Mazandaran, Babolsar, Iran
+  - family-names: Longo
+    given-names: Elena
+    affiliation: >-
+      Elettra Sincrotrone Trieste, S.S. 14 km 163.5, 34149 Basovizza,
+      Trieste, Italy
+  - family-names: Hoda
+    given-names: Armita
+    affiliation: >-
+      Department of Biotechnology, College of Science, University of Tehran,
+      Tehran, Iran
+  - family-names: Taheri
+    given-names: Amirreza Farnam
+    affiliation: >-
+      Department of Economics, Tehran Institute for Advanced Studies,
+      Tehran, Iran
+  - family-names: Tromba
+    given-names: Guiliana
+    affiliation: >-
+      Elettra Sincrotrone Trieste, S.S. 14 km 163.5, 34149 Basovizza,
+      Trieste, Italy
+version: 1.0.0
+date-released: 2026-06-22
+license: Manuscript review and research reproduction
+abstract: >-
+  Python package for SR-PhC-microCT dermal fibrous-candidate extraction and
+  fixed-angle orientation analysis in rat wound-bed ROIs, supporting the study
+  of chitosan-based film treatments.
+keywords:
+  - microCT
+  - phase-contrast
+  - dermal extracellular matrix
+  - wound healing
+  - chitosan
+  - structure tensor
+  - image analysis
+repository-code: ''
+url: ''
+preferred-citation:
+  type: article
+  title: >-
+    Synchrotron X-ray Phase-Contrast Microtomography of Dermal Fibrous Matrix
+    Remodeling in Rat Wounds Treated with Chitosan-Based Films
+  authors:
+    - family-names: Elmi
+      given-names: Maryam Mitra
+    - family-names: Elmi
+      given-names: Fatemeh
+    - family-names: Longo
+      given-names: Elena
+    - family-names: Hoda
+      given-names: Armita
+    - family-names: Taheri
+      given-names: Amirreza Farnam
+    - family-names: Tromba
+      given-names: Guiliana
+  year: 2026
+  journal: ''
+  doi: ''

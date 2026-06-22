@@ -1,0 +1,9 @@
+This code package is supplied for manuscript review and research reproduction.
+
+Reuse should cite the associated study and software using CITATION.cff or references.bib.
+
+Elmi MM, Elmi F, Longo E, Hoda A, Taheri AF, Tromba G.
+Synchrotron X-ray Phase-Contrast Microtomography of Dermal Fibrous Matrix Remodeling in Rat Wounds Treated with Chitosan-Based Films.
+[Journal, year, DOI — to be completed upon publication.]
+
+Software: dermal-morphometry v1.0.0.

@@ -1,0 +1,43 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dermal-morphometry"
+version = "1.0.0"
+description = "SR-PhC-microCT dermal fibrous candidate and orientation analysis for chitosan wound-healing study."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Manuscript review and research reproduction" }
+keywords = [
+    "microCT",
+    "dermal",
+    "collagen",
+    "morphometry",
+    "phase-contrast",
+    "structure-tensor",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Medical Science Apps.",
+    "Topic :: Scientific/Engineering :: Image Processing",
+]
+dependencies = [
+    "numpy>=1.26",
+    "scipy>=1.11",
+    "scikit-image>=0.22",
+    "matplotlib>=3.8",
+]
+
+[project.scripts]
+dermal-morphometry = "dermal_morphometry.cli:main"
+
+[project.urls]
+Documentation = "README.md"
+Citation = "CITATION.cff"
+
+[tool.setuptools]
+packages = ["dermal_morphometry"]

@@ -1,0 +1,64 @@
+{
+  "input_file": "C:\\Users\\ACER\\Desktop\\output0_dermal_morphometry_submission\\examples\\data\\synthetic_roi.nrrd",
+  "mode": "high-res",
+  "sample": "synthetic",
+  "original_shape": [
+    32,
+    32,
+    24
+  ],
+  "analyzed_shape": [
+    16,
+    16,
+    12
+  ],
+  "normalization_percentile_clip": [
+    1.0,
+    99.0
+  ],
+  "normalization_clip_values": [
+    0.13032013431191444,
+    1.0258316242694854
+  ],
+  "black_threshold": 0.029984362423419952,
+  "scientific_label": "fibrous/collagen-rich candidate; image-axis orientation descriptors",
+  "important_limitation": "Longitudinal and transverse labels are fixed image-axis classes, not verified in-vivo anatomical collagen directions.",
+  "config": {
+    "downsample": 2,
+    "voxel_size_um": 0.9,
+    "black_percentile": 7.0,
+    "p_intensity": 86.0,
+    "texture_percentile": 70.0,
+    "texture_weight": 0.35,
+    "min_object_size_voxels": 8,
+    "angle_tolerance": 30.0,
+    "sigma_gradient": 1.0,
+    "sigma_tensor": 2.0,
+    "scale_bar_um": 50.0,
+    "nrrd_encoding": "gzip"
+  },
+  "metrics": {
+    "sample": "synthetic",
+    "input_file": "synthetic_roi.nrrd",
+    "method": "structure-tensor fixed-angle; no median split",
+    "fixed_angle_tolerance_deg": 30.0,
+    "downsample_factor": 2,
+    "voxel_size_um_assumed": 1.8,
+    "original_shape": "(32, 32, 24)",
+    "analyzed_shape": "(16, 16, 12)",
+    "excluded_black_or_void_percent": 6.998697916666667,
+    "valid_dermis_percent": 93.00130208333334,
+    "low_fiber_background_percent_total": 86.84895833333334,
+    "fiber_candidate_percent_total": 6.15234375,
+    "oblique_intermediate_percent_total": 0.06510416666666666,
+    "transverse_percent_total": 0.13020833333333331,
+    "longitudinal_percent_total": 5.95703125,
+    "oblique_fraction_of_fiber_candidate_percent": 1.0582010582010581,
+    "transverse_fraction_of_fiber_candidate_percent": 2.1164021164021163,
+    "longitudinal_fraction_of_fiber_candidate_percent": 96.82539682539682,
+    "transverse_to_longitudinal_ratio": 0.02185792349726776,
+    "longitudinal_to_transverse_ratio": 45.75,
+    "mean_orientation_coherence_in_fiber": 0.4832008481025696,
+    "alignment_imbalance_index_abs_L_minus_T_over_fiber": 0.9470899470899471
+  }
+}

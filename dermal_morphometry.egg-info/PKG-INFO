@@ -1,0 +1,149 @@
+Metadata-Version: 2.4
+Name: dermal-morphometry
+Version: 1.0.0
+Summary: Submission-ready SR-PhC-microCT dermal fibrous candidate and orientation analysis pipelines.
+License: Manuscript review and research reproduction
+Project-URL: Documentation, README.md
+Project-URL: Code availability statement, CODE_AVAILABILITY_STATEMENT.md
+Keywords: microCT,dermal,collagen,morphometry,phase-contrast,structure-tensor
+Classifier: Development Status :: 5 - Production/Stable
+Classifier: Intended Audience :: Science/Research
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Topic :: Scientific/Engineering :: Medical Science Apps.
+Classifier: Topic :: Scientific/Engineering :: Image Processing
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+License-File: LICENSE.txt
+Requires-Dist: numpy>=1.26
+Requires-Dist: scipy>=1.11
+Requires-Dist: scikit-image>=0.22
+Requires-Dist: matplotlib>=3.8
+Dynamic: license-file
+
+# Dermal Morphometry — Journal Submission Code Package
+
+Unified, reproducible Python implementation of the custom image-analysis workflows used for synchrotron radiation phase-contrast micro-computed tomography (SR-PhC-microCT) quantification of dermal fibrous matrix remodeling in rat wound-bed regions of interest (ROIs).
+
+This package consolidates two manuscript-aligned pipelines into one installable command-line tool while preserving the algorithmic logic of the original analysis scripts:
+
+| Manuscript workflow | Package mode | Original script |
+| --- | --- | --- |
+| Low-resolution P86 fibrous-candidate extraction | `low-res` | `collagen_p86_only_scientific_pipeline_no_central.py` |
+| High-resolution fixed-angle orientation mapping | `high-res` | `fixed_angle_orientation_class_mapping.py` |
+
+No new 3D structure-tensor formulation, linear mixed-effects model, or additional statistical architecture is introduced in this submission package. Those items are noted as directions for future revision, not as part of the present reproducibility bundle.
+
+## Software architecture
+
+```
+dermal_morphometry/
+├── cli.py              # Unified command-line entry point
+├── constants.py        # Shared normalization defaults and scientific labels
+├── export.py           # Metrics CSV, JSON metadata, README, and ZIP writers
+├── mesh_io.py          # Optional STL/PLY surface export (low-res workflow)
+├── preprocessing.py    # Intensity normalization and downsampling
+├── nrrd_io.py          # Lightweight attached-data NRRD reader/writer
+├── visualization.py    # QC dashboards and scale-bar figures
+├── low_res.py          # P86 fibrous-candidate workflow
+└── high_res.py         # Fixed-angle orientation-class workflow
+```
+
+Design principles:
+
+- **Manuscript parity** — default parameters match those reported in the associated study.
+- **Separation of concerns** — I/O, visualization, segmentation, and orchestration live in distinct modules.
+- **Self-contained I/O** — NRRD read/write is implemented internally so reviewers are not required to install `pynrrd`.
+- **Explicit scientific limits** — output metadata and per-run README files state interpretation boundaries.
+
+## Requirements
+
+- Python 3.11 or newer
+- NumPy, SciPy, scikit-image, Matplotlib (see `requirements.txt`)
+
+## Installation
+
+From the package root:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
+
+Verify the installation:
+
+```bash
+python -m dermal_morphometry --help
+python tests/smoke_test.py
+```
+
+## Usage
+
+### Low-resolution P86 workflow
+
+```bash
+dermal-morphometry --mode low-res --input ROI_low.nrrd --outdir results_low -v
+```
+
+### High-resolution orientation-class workflow
+
+```bash
+dermal-morphometry --mode high-res --input ROI_high.nrrd --outdir results_high --sample chitosan_G90_ROI1 -v
+```
+
+### Both workflows (verification convenience)
+
+```bash
+dermal-morphometry --mode both --input ROI.nrrd --outdir results_both --sample sample_ROI -v
+```
+
+Low- and high-resolution tracks are normally applied to separate acquisitions because voxel size, field of view, and image texture differ. The `both` mode is provided for technical convenience and smoke testing.
+
+## Manuscript-parity defaults
+
+### Shared preprocessing
+
+- 1st–99th percentile clipping
+- Robust rescaling to the interval [0, 1]
+
+### Low-resolution workflow
+
+- P86 intensity thresholding on Gaussian-smoothed signal (σ = 1.0)
+- 3D morphological closing with voxel ball radius = 1
+- 3D small-object removal, minimum size = 120 voxels
+- Binary hole filling
+- Local density map: Gaussian smoothing of the binary P86 mask (σ = 5.0)
+- Scale bar: 200 µm
+
+### High-resolution workflow
+
+- Black/void percentile exclusion = 7.0
+- Candidate intensity percentile = 86.0
+- Texture percentile = 70.0
+- Texture weight = 0.35
+- Minimum object size = 8 voxels
+- 2D slice-wise structure tensor: σ_gradient = 1.0, σ_tensor = 2.0
+- Longitudinal class: 0° ± 30° or 180° ± 30° relative to image x-axis
+- Transverse class: 90° ± 30° relative to image x-axis
+- Oblique/intermediate class: remaining fibrous candidates
+- Scale bar: 50 µm
+
+## Scientific interpretation limits
+
+Segmented structures should be reported as **collagen-rich or fibrous candidates**, not as definitive collagen, unless independently validated by staining, Fourier-transform infrared spectroscopy (FTIR), second-harmonic generation (SHG) microscopy, histology, or another reference method.
+
+Longitudinal and transverse high-resolution labels are **fixed reconstruction-coordinate descriptors**. They should not be interpreted as verified in-vivo anatomical directions unless the volume has been co-registered to a validated anatomical reference.
+
+## Output structure
+
+**Low-resolution outputs:** P86 candidate mask, enhanced signal volume, slice-wise skeleton QC map, local density map, metrics CSV, metadata JSON, QC dashboard PNG, MIP overlay PNG, optional STL/PLY surface meshes, per-run README, and ZIP archive.
+
+**High-resolution outputs:** valid-dermis mask, fibrous-candidate mask, fixed-angle class labels, structure-tensor angle and coherence volumes, metrics CSV, metadata JSON, QC dashboard PNG, per-run README, and ZIP archive.
+
+## Journal submission materials
+
+For paste-ready statements suitable for the manuscript *Code availability*, *Software*, or *Supplementary Methods* sections, see [CODE_AVAILABILITY_STATEMENT.md](CODE_AVAILABILITY_STATEMENT.md).
+
+## License
+
+This code package is supplied for manuscript review and research reproduction. Reuse should cite the associated SR-PhC-microCT dermal fibrous matrix remodeling study (see `LICENSE.txt`).
