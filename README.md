@@ -19,7 +19,7 @@ Software: dermal-morphometry v1.0.0.
 
 ## Code availability
 
-Custom analysis code supporting this study is provided as **dermal-morphometry** (v1.0.0). The package implements two SR-PhC-microCT workflows (Section 2.3): (i) low-resolution P86 fibrous-candidate extraction with connectivity metrics and (ii) high-resolution fixed-angle orientation-class mapping within wound-bed ROIs. Source code, installation instructions, and a synthetic smoke test are included in the supplementary code bundle. Analysis in the study used Python 3.13.5; the package requires Python ≥ 3.11 with NumPy, SciPy, scikit-image, and Matplotlib. *[Insert repository DOI or URL upon deposition.]*
+Custom analysis code supporting this study is provided as **dermal-morphometry** (v1.0.0). The package implements two SR-PhC-microCT workflows (Section 2.3): (i) low-resolution P86 fibrous-candidate extraction with connectivity metrics and (ii) high-resolution fixed-angle orientation-class mapping within wound-bed ROIs. Source code, installation instructions, and a synthetic smoke test are included in the supplementary code bundle. Analysis in the study used Python 3.13.5; the package requires Python ≥ 3.11 with NumPy, SciPy, scikit-image, and Matplotlib. *[https://github.com/Fatemeh-Elmi/dermal-morphometry]*
 
 ## Authors and affiliations
 
@@ -112,7 +112,7 @@ Longitudinal and transverse labels are **fixed reconstruction-coordinate descrip
 
 Quantitative morphometry was performed on NRRD volumes exported from 3D Slicer after manual wound-bed ROI cropping. The low-resolution workflow applies P86 thresholding with morphological refinement and connectivity metrics. The high-resolution workflow combines intensity–texture candidate extraction with slice-wise 2D structure-tensor orientation classification. No proprietary dependencies are required; NRRD I/O is handled internally.
 
-**Author contributions (software):** M.M.E. and F.E. developed the analysis workflows; F.E. supervised analysis and prepared the reproducibility package; E.L. and G.T. supported synchrotron acquisition; A.H. and A.F.T. contributed to sample preparation and coordination.
+**Author contributions (software):** M.M.E. and F.E. developed the analysis workflows; F.E. supervised analysis; E.L. and G.T. supported synchrotron acquisition; A.H. contributed to sample preparation, coordination; A.F.T. prepared the reproduction package.
 
 ## License
 
