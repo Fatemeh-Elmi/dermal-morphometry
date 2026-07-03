@@ -35,8 +35,13 @@ authors:
     affiliation: >-
       Elettra Sincrotrone Trieste, S.S. 14 km 163.5, 34149 Basovizza,
       Trieste, Italy
+  - family-names: Paiva
+    given-names: Katrine
+    affiliation: >-
+      Laboratory of Applied Physics to Biomedical Sciences, Physics Institute,
+      State University of Rio de Janeiro, Rio de Janeiro, Brazil
 version: 1.0.0
-date-released: 2026-06-22
+date-released: 2026-07-03
 license: Manuscript review and research reproduction
 abstract: >-
   Python package for SR-PhC-microCT dermal fibrous-candidate extraction and
@@ -70,6 +75,8 @@ preferred-citation:
       given-names: Amirreza Farnam
     - family-names: Tromba
       given-names: Guiliana
+    - family-names: Paiva
+      given-names: Katrine
   year: 2026
   journal: ''
   doi: ''
