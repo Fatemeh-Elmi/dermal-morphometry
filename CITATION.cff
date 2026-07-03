@@ -42,7 +42,7 @@ authors:
       State University of Rio de Janeiro, Rio de Janeiro, Brazil
 version: 1.0.0
 date-released: 2026-07-03
-license: Manuscript review and research reproduction
+license: CC-BY-4.0
 abstract: >-
   Python package for SR-PhC-microCT dermal fibrous-candidate extraction and
   fixed-angle orientation analysis in rat wound-bed ROIs, supporting the study
@@ -55,8 +55,6 @@ keywords:
   - chitosan
   - structure tensor
   - image analysis
-repository-code: ''
-url: ''
 preferred-citation:
   type: article
   title: >-
@@ -78,5 +76,3 @@ preferred-citation:
     - family-names: Paiva
       given-names: Katrine
   year: 2026
-  journal: ''
-  doi: ''
