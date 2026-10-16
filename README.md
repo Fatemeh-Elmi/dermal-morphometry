@@ -39,7 +39,7 @@ Custom analysis code supporting this study is provided as **dermal-morphometry**
 | Analysis track | CLI mode | Manuscript role |
 | --- | --- | --- |
 | Low-resolution P86 fibrous-candidate extraction | `low-res` | Wound-bed organization, connectivity, fragmentation (Tables 1–2) |
-| High-resolution fixed-angle orientation mapping | `high-res` | Fibrous-candidate abundance and orientation descriptors (Tables 3–5) |
+| High-resolution fixed-angle orientation mapping | `high-res` | Fibrous-candidate abundance and orientation descriptors (Table 3) |
 
 ## Installation
 
