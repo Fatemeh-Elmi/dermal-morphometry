@@ -19,7 +19,10 @@ def configure_logging(verbosity: int) -> None:
         level = logging.INFO
     elif verbosity >= 2:
         level = logging.DEBUG
-    logging.basicConfig(level=level, format="%(asctime)s | %(levelname)s | %(name)s | %(message)s")
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -27,39 +30,89 @@ def build_parser() -> argparse.ArgumentParser:
         prog="dermal-morphometry",
         description="Unified SR-PhC-microCT dermal fibrous candidate and orientation analysis pipeline.",
     )
+
     parser.add_argument("--input", required=True, help="Input cropped 3D NRRD volume.")
     parser.add_argument("--outdir", required=True, help="Output directory.")
-    parser.add_argument("--mode", choices=("low-res", "high-res", "both"), default="both", help="Workflow to run.")
-    parser.add_argument("--sample", default="sample", help="Sample label used for high-resolution output names.")
-    parser.add_argument("--nrrd-encoding", choices=("gzip", "raw"), default="gzip", help="Encoding for generated NRRD outputs.")
-    parser.add_argument("-v", "--verbose", action="count", default=0, help="Increase logging verbosity; repeat for debug logging.")
+    parser.add_argument(
+        "--mode",
+        choices=("low-res", "high-res", "both"),
+        default="both",
+        help="Workflow to run.",
+    )
+    parser.add_argument("--sample", default="sample", help="Sample label.")
+    parser.add_argument(
+        "--nrrd-encoding",
+        choices=("gzip", "raw"),
+        default="gzip",
+        help="Encoding for generated NRRD outputs.",
+    )
+    parser.add_argument(
+        "-v", "--verbose",
+        action="count",
+        default=0,
+        help="Increase logging verbosity.",
+    )
 
     low = parser.add_argument_group("low-resolution P86 options")
-    low.add_argument("--low-percentile", type=int, default=86, help="Low-res final threshold percentile; manuscript default P86.")
-    low.add_argument("--low-sigma", type=float, default=1.0, help="Low-res Gaussian smoothing sigma.")
-    low.add_argument("--low-min-size", type=int, default=120, help="Low-res 3D small-object removal size in voxels.")
-    low.add_argument("--low-closing-radius", type=int, default=1, help="Low-res 3D morphological closing radius in voxels.")
-    low.add_argument("--low-density-sigma", type=float, default=5.0, help="Low-res Gaussian sigma for local density map.")
-    low.add_argument("--low-voxel-size-um", type=float, default=3.84, help="Low-res voxel size in um for scale bars.")
-    low.add_argument("--no-mesh", action="store_true", help="Skip low-res STL/PLY mesh export.")
+    low.add_argument("--low-percentile", type=int, default=86)
+    low.add_argument("--low-sigma", type=float, default=1.0)
+    low.add_argument("--low-min-size", type=int, default=120)
+    low.add_argument("--low-closing-radius", type=int, default=1)
+    low.add_argument("--low-density-sigma", type=float, default=5.0)
+    low.add_argument("--low-voxel-size-um", type=float, default=3.84)
+    low.add_argument("--no-mesh", action="store_true")
 
-    high = parser.add_argument_group("high-resolution orientation options")
-high.add_argument("--downsample", type=int, default=1,
-                  help="High-res analysis at original ROI resolution (DS1).")
-high.add_argument("--high-voxel-size-um", type=float, default=None,
-                  help="Verified high-res voxel size in µm; optional.")
-high.add_argument("--black-percentile", type=float, default=7.0,
-                  help="Valid-tissue exclusion percentile.")
-high.add_argument("--p-intensity", type=float, default=60.0,
-                  help="Intensity percentile for fibrous candidates (P60).")
-high.add_argument("--texture-percentile", type=float, default=55.0,
-                  help="Percentile of local 3x3x3 intensity standard deviation (P55).")
-high.add_argument("--angle-tolerance", type=float, default=30.0,
-                  help="Orientation-class tolerance in degrees.")
-high.add_argument("--sigma-gradient", type=float, default=1.0,
-                  help="Structure-tensor gradient smoothing sigma.")
-high.add_argument("--sigma-tensor", type=float, default=2.0,
-                  help="Structure-tensor smoothing sigma.")
+    high = parser.add_argument_group("high-resolution P60/P55 DS1 options")
+
+    high.add_argument(
+        "--downsample",
+        type=int,
+        default=1,
+        help="Original ROI resolution (DS1).",
+    )
+    high.add_argument(
+        "--high-voxel-size-um",
+        type=float,
+        default=None,
+        help="Verified voxel size in micrometers; optional.",
+    )
+    high.add_argument(
+        "--black-percentile",
+        type=float,
+        default=7.0,
+        help="Valid-tissue exclusion percentile.",
+    )
+    high.add_argument(
+        "--p-intensity",
+        type=float,
+        default=60.0,
+        help="Intensity threshold percentile (P60).",
+    )
+    high.add_argument(
+        "--texture-percentile",
+        type=float,
+        default=55.0,
+        help="Local 3x3x3 standard-deviation percentile (P55).",
+    )
+    high.add_argument(
+        "--angle-tolerance",
+        type=float,
+        default=30.0,
+        help="Orientation tolerance in degrees.",
+    )
+    high.add_argument(
+        "--sigma-gradient",
+        type=float,
+        default=1.0,
+        help="Structure-tensor gradient smoothing.",
+    )
+    high.add_argument(
+        "--sigma-tensor",
+        type=float,
+        default=2.0,
+        help="Structure-tensor smoothing.",
+    )
+
     return parser
 
 
@@ -74,7 +127,11 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.mode in ("low-res", "both"):
-            low_outdir = outdir if args.mode == "low-res" else outdir / "low_res"
+            low_outdir = (
+                outdir if args.mode == "low-res"
+                else outdir / "low_res"
+            )
+
             low_config = LowResConfig(
                 percentile=args.low_percentile,
                 sigma=args.low_sigma,
@@ -85,29 +142,46 @@ def main(argv: list[str] | None = None) -> int:
                 nrrd_encoding=args.nrrd_encoding,
                 export_mesh=not args.no_mesh,
             )
+
             process_low_res(input_path, low_outdir, low_config)
 
         if args.mode in ("high-res", "both"):
-            high_outdir = outdir if args.mode == "high-res" else outdir / "high_res"
+            high_outdir = (
+                outdir if args.mode == "high-res"
+                else outdir / "high_res"
+            )
+
             high_config = HighResConfig(
                 downsample=args.downsample,
                 voxel_size_um=args.high_voxel_size_um,
                 black_percentile=args.black_percentile,
                 p_intensity=args.p_intensity,
                 texture_percentile=args.texture_percentile,
-               angle_tolerance=args.angle_tolerance,
+                angle_tolerance=args.angle_tolerance,
                 sigma_gradient=args.sigma_gradient,
                 sigma_tensor=args.sigma_tensor,
                 nrrd_encoding=args.nrrd_encoding,
             )
-            process_high_res(input_path, high_outdir, high_config, sample=args.sample)
-    except DermalMorphometryError as exc:
-        logging.getLogger(__name__).error("Pipeline failed: %s", exc)
+
+            process_high_res(
+                input_path,
+                high_outdir,
+                high_config,
+                sample=args.sample,
+            )
+
+    except (DermalMorphometryError, ValueError) as exc:
+        logging.getLogger(__name__).error(
+            "Pipeline failed: %s", exc
+        )
         return 2
 
-    logging.getLogger(__name__).info("All requested workflows completed in %s", outdir)
+    logging.getLogger(__name__).info(
+        "All requested workflows completed in %s", outdir
+    )
     return 0
 
 
 if __name__ == "__main__":
     sys.exit(main())
+
