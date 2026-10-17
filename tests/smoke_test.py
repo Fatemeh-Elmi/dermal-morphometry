@@ -21,7 +21,7 @@ def main() -> None:
         reread = read_nrrd(input_path)
         assert reread.data.shape == vol.shape
         process_low_res(input_path, root / "low", LowResConfig(export_mesh=False))
-        process_high_res(input_path, root / "high", HighResConfig(downsample=2), sample="synthetic")
+        process_high_res(input_path, root / "high", HighResConfig(downsample=1), sample="synthetic")
         assert (root / "low" / "P86_quantitative_metrics.csv").exists()
         assert (root / "high" / "synthetic_fixed_angle_orientation_class_metrics.csv").exists()
 
