@@ -162,7 +162,7 @@ def save_orientation_dashboard(
 ) -> None:
     """Create high-resolution fixed-angle orientation-class dashboard."""
     out_png.parent.mkdir(parents=True, exist_ok=True)
-    zdim = labels.shape[0]
+    xdim = labels.shape[0]
     zs = [max(0, zdim // 6), zdim // 2, min(zdim - 1, int(5 * zdim / 6))]
     label_mip = np.max(labels, axis=0)
 
@@ -186,7 +186,7 @@ def save_orientation_dashboard(
     for i, z in enumerate(zs):
         ax = fig.add_subplot(gs[1, i])
         ax.imshow(colorize_orientation_labels(labels[z]))
-        ax.set_title(f"Slice z={z}", fontsize=9)
+        ax.set_title(f"Slice x={x}", fontsize=9)
         add_scale_bar(ax, voxel_size_um, scale_bar_um)
         ax.set_xticks([])
         ax.set_yticks([])
