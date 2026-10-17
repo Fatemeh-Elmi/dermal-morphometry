@@ -59,7 +59,7 @@ python examples/run_synthetic_demo.py
 dermal-morphometry --mode low-res --input ROI_low.nrrd --outdir results_low -v
 
 # High-resolution orientation workflow
-dermal-morphometry --mode high-res --input ROI_high.nrrd --outdir results_high --sample chitosan_G90_ROI1 -v
+dermal-morphometry --mode high-res --input ROI_high.nrrd --outdir results_high -v
 
 # Both tracks (verification only; normally use separate acquisitions)
 dermal-morphometry --mode both --input ROI.nrrd --outdir results_both --sample sample_ROI -v
@@ -88,12 +88,8 @@ dermal_morphometry/
 
 **Low-resolution:** Gaussian σ = 1.0; P86 threshold; 3D closing (ball radius 1); remove components < 120 voxels; hole filling; density map σ = 5.0; pixel size 3.84 µm.
 
-**High-resolution:** downsample ×6; exclude below 7th percentile; intensity P86 + texture P70 (weight 0.35); min object 8 voxels; structure tensor σ_gradient = 1.0, σ_tensor = 2.0; longitudinal 0°/180° ± 30°, transverse 90° ± 30°; pixel size 0.9 µm.
-
-Volumes were analyzed without rotation; orientation classes are defined relative to reconstruction image axes.
-
-## Outputs
-
+**High-resolution:**  Original ROI resolution (DS1; no downsampling); exclude voxels at or below the 7th intensity percentile; intensity P60 OR local intensity standard deviation P55 (3 × 3 × 3 voxel neighborhood), within the valid tissue mask; no connected-component filtering or morphological post-processing; 2D structure tensor on YZ slices with σ_gradient = 1.0 and σ_tensor = 2.0; Y-axis-aligned (longitudinal) and Z-axis-aligned (transverse) orientations, each within ±30°.
+Volumes were analyzed without rotation; orientation classes are defined relative to reconstruction image axes and do not necessarily represent anatomical wound directions.
 **Low-resolution:** P86 mask, enhanced signal, skeleton QC map, density map, metrics CSV, metadata JSON, QC dashboard, MIP overlay, optional STL/PLY meshes, per-run README, ZIP.
 
 **High-resolution:** valid-dermis mask, fibrous-candidate mask, orientation labels, angle/coherence volumes, metrics CSV, metadata JSON, QC dashboard, per-run README, ZIP.
