@@ -25,7 +25,7 @@ Replace the synthetic input with a cropped NRRD exported from 3D Slicer:
 
 ```bash
 dermal-morphometry --mode low-res --input path/to/ROI_low.nrrd --outdir examples/output/my_low -v
-dermal-morphometry --mode high-res --input path/to/ROI_high.nrrd --outdir examples/output/my_high --sample chitosan_G90_ROI1 -v
+dermal-morphometry --mode high-res --input path/to/ROI_high.nrrd --outdir examples/output/my_high -v
 ```
 
 Low- and high-resolution ROIs normally come from separate acquisitions (Section 2.3).
