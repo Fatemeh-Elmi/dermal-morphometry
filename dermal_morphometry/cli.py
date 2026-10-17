@@ -44,16 +44,22 @@ def build_parser() -> argparse.ArgumentParser:
     low.add_argument("--no-mesh", action="store_true", help="Skip low-res STL/PLY mesh export.")
 
     high = parser.add_argument_group("high-resolution orientation options")
-    high.add_argument("--downsample", type=int, default=6, help="High-res integer downsample factor (manuscript default 6).")
-    high.add_argument("--high-voxel-size-um", type=float, default=0.9, help="High-res voxel size in um (manuscript acquisition 0.9 um).")
-    high.add_argument("--black-percentile", type=float, default=7.0, help="High-res black/void exclusion percentile.")
-    high.add_argument("--p-intensity", type=float, default=86.0, help="High-res intensity percentile for candidates.")
-    high.add_argument("--texture-percentile", type=float, default=70.0, help="High-res texture percentile gate.")
-    high.add_argument("--texture-weight", type=float, default=0.35, help="Weight of texture score in candidate extraction.")
-    high.add_argument("--high-min-size", type=int, default=8, help="High-res minimum object size in voxels.")
-    high.add_argument("--angle-tolerance", type=float, default=30.0, help="Fixed-angle tolerance in degrees.")
-    high.add_argument("--sigma-gradient", type=float, default=1.0, help="Structure tensor pre-gradient Gaussian sigma.")
-    high.add_argument("--sigma-tensor", type=float, default=2.0, help="Structure tensor smoothing sigma.")
+high.add_argument("--downsample", type=int, default=1,
+                  help="High-res analysis at original ROI resolution (DS1).")
+high.add_argument("--high-voxel-size-um", type=float, default=None,
+                  help="Verified high-res voxel size in µm; optional.")
+high.add_argument("--black-percentile", type=float, default=7.0,
+                  help="Valid-tissue exclusion percentile.")
+high.add_argument("--p-intensity", type=float, default=60.0,
+                  help="Intensity percentile for fibrous candidates (P60).")
+high.add_argument("--texture-percentile", type=float, default=55.0,
+                  help="Percentile of local 3x3x3 intensity standard deviation (P55).")
+high.add_argument("--angle-tolerance", type=float, default=30.0,
+                  help="Orientation-class tolerance in degrees.")
+high.add_argument("--sigma-gradient", type=float, default=1.0,
+                  help="Structure-tensor gradient smoothing sigma.")
+high.add_argument("--sigma-tensor", type=float, default=2.0,
+                  help="Structure-tensor smoothing sigma.")
     return parser
 
 
@@ -89,9 +95,7 @@ def main(argv: list[str] | None = None) -> int:
                 black_percentile=args.black_percentile,
                 p_intensity=args.p_intensity,
                 texture_percentile=args.texture_percentile,
-                texture_weight=args.texture_weight,
-                min_object_size_voxels=args.high_min_size,
-                angle_tolerance=args.angle_tolerance,
+               angle_tolerance=args.angle_tolerance,
                 sigma_gradient=args.sigma_gradient,
                 sigma_tensor=args.sigma_tensor,
                 nrrd_encoding=args.nrrd_encoding,
