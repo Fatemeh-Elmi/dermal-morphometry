@@ -117,14 +117,16 @@ Low- and high-resolution tracks are normally applied to separate acquisitions be
 
 ### High-resolution workflow
 
+
+- Original ROI resolution (DS1; no downsampling)
 - Black/void percentile exclusion = 7.0
-- Candidate intensity percentile = 86.0
-- Texture percentile = 70.0
-- Texture weight = 0.35
-- Minimum object size = 8 voxels
-- 2D slice-wise structure tensor: σ_gradient = 1.0, σ_tensor = 2.0
-- Longitudinal class: 0° ± 30° or 180° ± 30° relative to image x-axis
-- Transverse class: 90° ± 30° relative to image x-axis
+- Candidate intensity percentile = 60.0
+- Texture percentile = 55.0 (local intensity standard deviation, 3 × 3 × 3 voxels)
+- Segmentation rule: valid tissue AND (intensity ≥ P60 OR texture ≥ P55)
+- No weighted scoring, small-object removal, or morphological post-processing
+- 2D slice-wise structure tensor in YZ planes: σ_gradient = 1.0, σ_tensor = 2.0
+- Longitudinal class: Y-axis-aligned orientation ± 30°
+- Transverse class: Z-axis-aligned orientation ± 30°
 - Oblique/intermediate class: remaining fibrous candidates
 - Scale bar: 50 µm
 
