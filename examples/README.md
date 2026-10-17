@@ -10,7 +10,7 @@ From the package root, after installation:
 python examples/run_synthetic_demo.py
 ```
 
-Outputs are written to `examples/output/low_res/` and `examples/output/high_res/`.
+Outputs are written to `examples/output/low_res/` and `examples/output/high_res/`
 
 ## What the demo does
 
@@ -35,3 +35,5 @@ Low- and high-resolution ROIs normally come from separate acquisitions (Section 
 **Low-resolution:** `P86_quantitative_metrics.csv`, `P86_scientific_qc_dashboard.png`, NRRD masks, metadata JSON, ZIP archive.
 
 **High-resolution:** `synthetic_fixed_angle_orientation_class_metrics.csv`, orientation-class dashboard, label volumes, metadata JSON, ZIP archive.
+
+
