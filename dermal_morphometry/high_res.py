@@ -1,311 +1,559 @@
-"""High-resolution SR-PhC-microCT candidate segmentation and image orientation.
 
-Fixed analysis settings:
-- Original ROI resolution (DS1), NRRD axis order X,Y,Z.
-- P1/P99 grayscale normalization, valid intensity > ROI P7.
-- Candidate mask = valid AND (intensity >= valid P60 OR
-  local 3D 3x3x3 standard deviation >= valid P55).
-- Per-slice 2D structure tensor in YZ image-coordinate planes (sliced along X),
-  Gaussian gradient sigma=1 and tensor sigma=2 voxel, class tolerance +/-30 deg.
-- In-plane row axis Y and column axis Z; class labels refer to image axes
-  and are not registered to an anatomical wound axis.
-- Fraction denominator: all ROI voxels, including excluded background.
+"""High-resolution dermal fibrous-candidate and orientation analysis.
 
-Requires Python >=3.10, numpy, scipy; matplotlib optional for --qc.
+Manuscript settings:
+- Original ROI resolution (DS1)
+- P1/P99 intensity normalization
+- Valid tissue: normalized intensity > ROI P7
+- Local 3x3x3 intensity standard deviation
+- Segmentation: valid AND (intensity >= P60 OR texture >= P55)
+- No small-object removal or morphological post-processing
+- 2D structure tensor on YZ slices (NRRD axes X,Y,Z)
+- Orientation classes relative to image axes, not anatomical axes
 """
+
 from __future__ import annotations
 
-import argparse
-import csv
-import gzip
-import hashlib
-import json
-import platform
-import re
-import sys
+from dataclasses import dataclass, asdict
 from pathlib import Path
+import logging
+import re
 
 import numpy as np
-import scipy
 from scipy import ndimage as ndi
 
-PROFILES = {
-    "p60p55-ds1": {
-        "downsample": 1,
-        "plane": "YZ",
-        "sigma_gradient": 1.0,
-        "sigma_tensor": 2.0,
-        "status": "YZ image-coordinate analysis (row Y, column Z)",
-    },
-}
-
-DTYPES = {
-    "unsigned char": "u1", "uchar": "u1", "uint8": "u1",
-    "signed char": "i1", "char": "i1", "int8": "i1",
-    "unsigned short": "u2", "ushort": "u2", "uint16": "u2",
-    "short": "i2", "int16": "i2", "int": "i4", "int32": "i4",
-    "float": "f4", "double": "f8",
-}
-
-
-def read_nrrd(path: Path) -> tuple[np.ndarray, dict[str, str]]:
-    """Read single-file 3-D NRRD preserving its axis order (axis0,axis1,axis2).
-
-    Does not secretly transpose X,Y,Z to Z,Y,X. Supports gzip and raw encoding.
-    """
-    with path.open("rb") as f:
-        payload = f.read()
-    match = re.search(rb"\r?\n\r?\n", payload)
-    if match is None:
-        raise ValueError(f"Invalid NRRD: no header separator in {path}")
-    head, body = payload[: match.start()], payload[match.end():]
-    if not head.startswith(b"NRRD"):
-        raise ValueError(f"Not a NRRD: {path}")
-    header: dict[str, str] = {}
-    for row in head.decode("latin1").splitlines():
-        if row.startswith("#") or ":" not in row:
-            continue
-        key, value = row.split(":", 1)
-        header[key.strip().lower()] = value.strip()
-    if int(header.get("dimension", "0")) != 3:
-        raise ValueError("Only scalar 3D NRRDs are supported")
-    if "data file" in header or "datafile" in header:
-        raise ValueError("Detached NRRD data is not supported")
-    dtype_code = DTYPES.get(header.get("type", "").lower())
-    if dtype_code is None:
-        raise ValueError("Unsupported NRRD scalar datatype")
-    dtype = np.dtype(dtype_code)
-    if dtype.itemsize > 1:
-        endian = header.get("endian", "little").lower()
-        if endian not in ("little", "big"):
-            raise ValueError("Invalid NRRD endian")
-        dtype = dtype.newbyteorder("<" if endian == "little" else ">")
-    encoding = header.get("encoding", "raw").lower()
-    if encoding in ("gzip", "gz"):
-        body = gzip.decompress(body)
-    elif encoding != "raw":
-        raise ValueError(f"NRRD encoding not supported: {encoding}")
-    dims = tuple(int(s) for s in header["sizes"].split())
-    arr = np.frombuffer(body, dtype=dtype)
-    if arr.size != int(np.prod(dims)):
-        raise ValueError(f"NRRD voxel count mismatch: got {arr.size}, expect {dims}")
-    return np.array(arr.reshape(dims, order="F"), copy=True), header
+from .constants import (
+    HIGH_RES_LIMITATION,
+    HIGH_RES_SCIENTIFIC_LABEL,
+    NORM_PERCENTILE_HIGH,
+    NORM_PERCENTILE_LOW,
+)
+from .export import (
+    safe_output_stem,
+    write_json_metadata,
+    write_metrics_csv,
+    write_text_readme,
+    zip_output_directory,
+)
+from .nrrd_io import read_nrrd, write_nrrd
+from .preprocessing import robust_normalize01
+from .visualization import save_orientation_dashboard
 
 
-def verify_xyz_header(header: dict[str, str]) -> None:
-    """Verify that the expected physical X,Y,Z NRRD axis order is present."""
+LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class HighResConfig:
+    downsample: int = 1
+    black_percentile: float = 7.0
+    p_intensity: float = 60.0
+    texture_percentile: float = 55.0
+    angle_tolerance: float = 30.0
+    sigma_gradient: float = 1.0
+    sigma_tensor: float = 2.0
+    voxel_size_um: float | None = None
+    scale_bar_um: float = 50.0
+    nrrd_encoding: str = "gzip"
+
+
+def verify_image_axes(header: dict) -> None:
+    """Check axis-aligned X,Y,Z geometry when available."""
     directions = header.get("space directions", "")
-    triples = re.findall(r"\(([^)]*)\)", directions)
+
+    if not directions:
+        return
+
+    triples = re.findall(r"\(([^)]*)\)", str(directions))
+
     if len(triples) != 3:
-        raise ValueError("Three NRRD 'space directions' vectors are required")
-    v = np.array([[float(x) for x in tri.split(",")] for tri in triples])
-    if v.shape != (3, 3) or not np.all(np.isfinite(v)):
-        raise ValueError("Invalid space directions")
-    if not (abs(v[0, 0]) > 0 and abs(v[1, 1]) > 0 and abs(v[2, 2]) > 0):
-        raise ValueError("Expected axis0=X, axis1=Y, axis2=Z")
-    if not np.allclose(v - np.diag(np.diag(v)), 0.0, atol=1e-6):
-        raise ValueError("Non-axis-aligned NRRD; must handle full geometry first")
+        raise ValueError("Unsupported NRRD space directions")
+
+    vectors = np.array(
+        [
+            [float(value) for value in triple.split(",")]
+            for triple in triples
+        ],
+        dtype=float,
+    )
+
+    if vectors.shape != (3, 3):
+        raise ValueError("Invalid NRRD spatial geometry")
+
+    if not np.all(np.isfinite(vectors)):
+        raise ValueError("Non-finite spatial coordinates")
+
+    if np.any(np.diag(vectors) == 0):
+        raise ValueError("Expected X,Y,Z axis order")
+
+    off_diagonal = vectors - np.diag(np.diag(vectors))
+
+    if not np.allclose(off_diagonal, 0, atol=1e-6):
+        raise ValueError(
+            "Non-axis-aligned NRRD requires geometry verification"
+        )
 
 
-def normalize_and_segment(vol_raw: np.ndarray) -> tuple[np.ndarray, np.ndarray, np.ndarray, dict]:
-    """Precisely reproduces audited P60/P55 segmentation, no morphology."""
-    lo, hi = (float(x) for x in np.percentile(vol_raw, [1, 99]))
-    if hi <= lo:
-        raise ValueError("Cannot normalize constant-intensity volume")
-    vol = np.clip((vol_raw.astype("f4") - lo) / (hi - lo), 0, 1).astype("f4")
-    p7 = float(np.percentile(vol, 7))
-    valid = vol > p7
-    if not valid.any():
-        raise ValueError("Valid tissue mask empty")
-    # Reflected 3x3x3 population standard deviation: not gradient magnitude.
-    x = vol.astype("f8")
-    mean = ndi.uniform_filter(x, size=3, mode="reflect")
-    std = np.sqrt(np.maximum(ndi.uniform_filter(x * x, size=3, mode="reflect") - mean**2, 0.0))
-    p60 = float(np.percentile(vol[valid], 60))
-    p55 = float(np.percentile(std[valid], 55))
-    fibrous = valid & ((vol >= p60) | (std >= p55))
-    return vol, valid, fibrous, {"norm_P1": lo, "norm_P99": hi,
-                                 "valid_P7_normalized": p7, "intensity_P60_valid": p60,
-                                 "local_SD_P55_valid": p55}
+def local_standard_deviation(
+    vol01: np.ndarray,
+) -> np.ndarray:
+    """Local intensity SD using a reflected 3x3x3 neighborhood."""
+
+    image = vol01.astype(np.float64)
+
+    local_mean = ndi.uniform_filter(
+        image,
+        size=3,
+        mode="reflect",
+    )
+
+    local_second_moment = ndi.uniform_filter(
+        image * image,
+        size=3,
+        mode="reflect",
+    )
+
+    local_variance = np.maximum(
+        local_second_moment - local_mean ** 2,
+        0.0,
+    )
+
+    return np.sqrt(local_variance)
 
 
-def orientation_and_metrics(
-    vol: np.ndarray, valid: np.ndarray, fibrous: np.ndarray,
-    *, plane: str, sigma_gradient: float, sigma_tensor: float,
-    angle_tolerance_deg: float = 30.0,
-) -> tuple[dict, np.ndarray]:
-    """Slice-wise 2D structure tensor in image-coordinate planes.
+def fibrous_candidate_mask(
+    vol01: np.ndarray,
+    valid_mask: np.ndarray,
+    intensity_percentile: float = 60.0,
+    texture_percentile: float = 55.0,
+) -> np.ndarray:
+    """Apply the P60/P55 logical-OR segmentation rule."""
 
-    For the fixed YZ analysis, the volume is stored as [X,Y,Z]; slicing
-    axis 0 gives image rows along Y and columns along Z. The reported row
-    and column aligned classes are in-plane image-coordinate descriptors.
-    Fiber orientation uses gradient principal eigenvector + 90 degrees.
+    if not np.any(valid_mask):
+        raise ValueError("Empty valid tissue mask")
+
+    texture = local_standard_deviation(vol01)
+
+    intensity_threshold = np.percentile(
+        vol01[valid_mask],
+        intensity_percentile,
+    )
+
+    texture_threshold = np.percentile(
+        texture[valid_mask],
+        texture_percentile,
+    )
+
+    fiber_mask = valid_mask & (
+        (vol01 >= intensity_threshold)
+        | (texture >= texture_threshold)
+    )
+
+    return fiber_mask
+
+
+def structure_tensor_orientation_2d(
+    image: np.ndarray,
+    sigma_gradient: float = 1.0,
+    sigma_tensor: float = 2.0,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Calculate structural angle and coherence on a YZ slice."""
+
+    smooth = ndi.gaussian_filter(
+        image.astype(np.float32),
+        sigma=sigma_gradient,
+    )
+
+    gradient_y, gradient_z = np.gradient(smooth)
+
+    jzz = ndi.gaussian_filter(
+        gradient_z * gradient_z,
+        sigma=sigma_tensor,
+    )
+
+    jyy = ndi.gaussian_filter(
+        gradient_y * gradient_y,
+        sigma=sigma_tensor,
+    )
+
+    jyz = ndi.gaussian_filter(
+        gradient_y * gradient_z,
+        sigma=sigma_tensor,
+    )
+
+    theta = (
+        np.degrees(
+            0.5 * np.arctan2(
+                2.0 * jyz,
+                jzz - jyy,
+            ) + np.pi / 2.0
+        ) % 180.0
+    )
+
+    coherence = np.sqrt(
+        (jzz - jyy) ** 2 + 4.0 * jyz ** 2
+    ) / (jzz + jyy + 1e-8)
+
+    coherence = np.clip(coherence, 0.0, 1.0)
+
+    return (
+        theta.astype(np.float32),
+        coherence.astype(np.float32),
+    )
+
+
+def classify_fixed_angle(
+    angle: np.ndarray,
+    fiber_mask: np.ndarray,
+    valid_mask: np.ndarray,
+    tolerance_deg: float = 30.0,
+) -> np.ndarray:
+    """Classify image-coordinate orientation.
+
+    0 = excluded
+    1 = valid noncandidate
+    2 = oblique
+    3 = Z-axis aligned (transverse)
+    4 = Y-axis aligned (longitudinal)
     """
-    if plane != "YZ":
-        raise ValueError("Fixed analysis uses YZ in-plane slices")
-    perm = (0, 1, 2)  # [X,Y,Z] => row:Y, column:Z
-    a = vol.transpose(perm)
-    f = fibrous.transpose(perm)
-    v = valid.transpose(perm)
-    labels = np.zeros(a.shape, dtype=np.uint8)
-    # classes 0=excluded, 1=valid noncandidate, 2=oblique,
-    # 3=column-axis aligned, 4=row-axis aligned
-    counts = np.zeros(3, dtype=np.int64)  # oblique, row-aligned, column-aligned
-    coherence_sum = 0.0
-    for i in range(a.shape[0]):
-        img = a[i]
-        smooth = ndi.gaussian_filter(img, sigma=sigma_gradient)
-        g_row, g_col = np.gradient(smooth)
-        cc = ndi.gaussian_filter(g_col * g_col, sigma=sigma_tensor)
-        rr = ndi.gaussian_filter(g_row * g_row, sigma=sigma_tensor)
-        cr = ndi.gaussian_filter(g_col * g_row, sigma=sigma_tensor)
-        theta = (np.degrees(0.5 * np.arctan2(2 * cr, cc - rr) + np.pi / 2) % 180)
-        coh = np.clip(np.sqrt((cc - rr)**2 + 4 * cr * cr) / (cc + rr + 1e-8), 0, 1)
-        fm = f[i]
-        col_aligned = fm & ((theta <= angle_tolerance_deg) | (theta >= 180 - angle_tolerance_deg))
-        row_aligned = fm & (np.abs(theta - 90) <= angle_tolerance_deg)
-        oblique = fm & ~(col_aligned | row_aligned)
-        labels[i][v[i]] = 1
-        labels[i][oblique] = 2
-        labels[i][col_aligned] = 3
-        labels[i][row_aligned] = 4
-        counts += np.array([int(oblique.sum()), int(row_aligned.sum()), int(col_aligned.sum())], dtype=np.int64)
-        coherence_sum += float(coh[fm].sum(dtype="f8"))
-    out_labels = np.transpose(labels, np.argsort(perm)).copy()
-    N = vol.size
-    n_fiber = int(fibrous.sum())
-    n_ob, n_row, n_col = map(int, counts)
-    if n_ob + n_row + n_col != n_fiber:
-        raise AssertionError("Candidate mask / orientation labels must agree")
-    mean_coh = coherence_sum / n_fiber if n_fiber else float("nan")
-    return ({
-        "N_ROI": int(N), "N_valid": int(valid.sum()), "N_fibrous": n_fiber,
-        "N_oblique": n_ob, "N_row_aligned": n_row, "N_column_aligned": n_col,
-        "valid_percent": float(100 * valid.sum() / N),
-        "fibrous_candidate_percent": float(100 * n_fiber / N),
-        "oblique_percent": float(100 * n_ob / N),
-        "row_axis_percent": float(100 * n_row / N),
-        "column_axis_percent": float(100 * n_col / N),
-        "row_over_column_ratio": float(n_row / n_col) if n_col else float("nan"),
-        "mean_coherence_fibrous": float(mean_coh),
-        "alignment_imbalance_index": float(abs(n_row - n_col) / n_fiber) if n_fiber else float("nan"),
-    }, out_labels)
+
+    labels = np.zeros(angle.shape, dtype=np.uint8)
+
+    labels[valid_mask] = 1
+    labels[fiber_mask] = 2
+
+    z_aligned = fiber_mask & (
+        (angle <= tolerance_deg)
+        | (angle >= 180.0 - tolerance_deg)
+    )
+
+    y_aligned = fiber_mask & (
+        np.abs(angle - 90.0) <= tolerance_deg
+    )
+
+    labels[z_aligned] = 3
+    labels[y_aligned] = 4
+
+    return labels
 
 
-def write_uint8_nrrd(path: Path, data_xyz: np.ndarray, header: dict[str, str], stride: int) -> None:
-    """Export labels/masks preserving original voxel axis order and geometry."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    dirs = header.get("space directions", "")
-    triples = re.findall(r"\(([^)]*)\)", dirs)
-    if len(triples) == 3:
-        vectors = [[float(x) * stride for x in tri.split(",")] for tri in triples]
-        directions = " ".join("(" + ",".join(f"{v:g}" for v in vec) + ")" for vec in vectors)
-    else:
-        directions = None
-    lines = ["NRRD0004", "type: unsigned char", "dimension: 3",
-             "sizes: " + " ".join(str(n) for n in data_xyz.shape),
-             "encoding: gzip", "endian: little"]
-    if "space" in header:
-        lines.append("space: " + header["space"])
-    if directions is not None:
-        lines.append("space directions: " + directions)
-    if "space origin" in header:
-        lines.append("space origin: " + header["space origin"])
-    lines.append("kinds: domain domain domain")
-    payload = ("\n".join(lines) + "\n\n").encode("utf8") + gzip.compress(data_xyz.astype(np.uint8).tobytes(order="F"))
-    path.write_bytes(payload)
+def estimate_orientation_volume(
+    vol01: np.ndarray,
+    fiber_mask: np.ndarray,
+    valid_mask: np.ndarray,
+    tolerance_deg: float = 30.0,
+    sigma_gradient: float = 1.0,
+    sigma_tensor: float = 2.0,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Process 2D YZ slices along the X axis."""
+
+    angle = np.zeros(vol01.shape, dtype=np.float32)
+    coherence = np.zeros(vol01.shape, dtype=np.float32)
+    labels = np.zeros(vol01.shape, dtype=np.uint8)
+
+    for x in range(vol01.shape[0]):
+
+        a, c = structure_tensor_orientation_2d(
+            vol01[x],
+            sigma_gradient=sigma_gradient,
+            sigma_tensor=sigma_tensor,
+        )
+
+        angle[x] = a
+        coherence[x] = c
+
+        labels[x] = classify_fixed_angle(
+            a,
+            fiber_mask[x],
+            valid_mask[x],
+            tolerance_deg=tolerance_deg,
+        )
+
+    return angle, coherence, labels
 
 
-def save_qc(path: Path, vol_xyz: np.ndarray, labels_xyz: np.ndarray,
-            plane: str, name: str, mode: str) -> None:
-    """The image is generated from real voxels; NO interpolation of labels."""
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    from matplotlib.colors import ListedColormap, BoundaryNorm
-    a = vol_xyz
-    b = labels_xyz
-    mids = [max(0, round(a.shape[0] * p)) for p in (0.2, 0.5, 0.8)]
-    mids = [min(k, a.shape[0] - 1) for k in mids]
-    cmap = ListedColormap(["#111111", "#bfe9e8", "#a4b5a3", "#e8de53", "#295fea"])
-    norm = BoundaryNorm(np.arange(-0.5, 5.5), 5)
-    fig, axs = plt.subplots(2, 3, figsize=(11.5, 7), dpi=160)
-    for j, k in enumerate(mids):
-        axs[0, j].imshow(a[k], cmap="gray", vmin=0, vmax=1, interpolation="nearest")
-        axs[1, j].imshow(b[k], cmap=cmap, norm=norm, interpolation="nearest")
-        axs[0, j].set_title(f"Real NRRD slice {k} | {plane}", fontsize=10)
-        axs[1, j].set_title(f"Orientation classes | slice {k}", fontsize=10)
-        for ax in (axs[0, j], axs[1, j]):
-            ax.set_axis_off()
-    fig.suptitle(f"{name} | {mode} | {plane} image-coordinate plane", fontsize=13)
-    from matplotlib.patches import Patch
-    handles = [Patch(color=c, label=label) for c, label in zip(
-        ["#111111", "#bfe9e8", "#a4b5a3", "#e8de53", "#295fea"],
-        ["excluded", "valid background", "oblique", "column-axis aligned", "row-axis aligned"])]
-    fig.legend(handles=handles, loc="lower center", ncol=5, fontsize=8,
-               bbox_to_anchor=(0.5, 0.015), frameon=False)
-    fig.subplots_adjust(bottom=0.12, top=0.88, hspace=0.20, wspace=0.07)
-    fig.savefig(path, bbox_inches="tight")
-    plt.close(fig)
+def compute_orientation_metrics(
+    labels: np.ndarray,
+    coherence: np.ndarray,
+    sample: str,
+    input_file: str,
+    tolerance_deg: float,
+    original_shape: tuple[int, int, int],
+) -> dict:
+    """Calculate ROI-level quantitative measurements."""
 
+    total = labels.size
 
-def analyze(path: Path, outdir: Path, profile: str, *, sample: str = "",
-            qc: bool = False, save_labels: bool = False) -> dict:
-    settings = PROFILES[profile]
-    outdir.mkdir(parents=True, exist_ok=True)
-    original, header = read_nrrd(path)
-    verify_xyz_header(header)  # Required for this study's axis-specific analysis.
-    ds = int(settings["downsample"])
-    raw = original[::ds, ::ds, ::ds]
-    normalized, valid, fibrous, thresholds = normalize_and_segment(raw)
-    stats, labels = orientation_and_metrics(normalized, valid, fibrous,
-            plane=str(settings["plane"]),
-            sigma_gradient=float(settings["sigma_gradient"]),
-            sigma_tensor=float(settings["sigma_tensor"]))
-    sha = hashlib.sha256(path.read_bytes()).hexdigest()
-    row = {
-        "sample": sample or path.stem, "input_file": path.name, "input_sha256": sha,
-        "profile": profile, "validation_status": settings["status"],
-        "NRRD_axis_order": "X,Y,Z", "slice_plane": settings["plane"],
-        "downsample_factor": ds, "sigma_gradient": settings["sigma_gradient"],
-        "sigma_tensor": settings["sigma_tensor"], "tolerance_degrees": 30,
-        "axis_row_in_slice": "Y",
-        "axis_column_in_slice": "Z",
-        "original_shape_XYZ": "x".join(map(str, original.shape)),
-        "analyzed_shape_XYZ": "x".join(map(str, raw.shape)),
-        **thresholds, **stats,
-        "python_version": platform.python_version(), "numpy_version": np.__version__,
-        "scipy_version": scipy.__version__,
+    excluded_n = int(np.count_nonzero(labels == 0))
+    background_n = int(np.count_nonzero(labels == 1))
+    oblique_n = int(np.count_nonzero(labels == 2))
+    transverse_n = int(np.count_nonzero(labels == 3))
+    longitudinal_n = int(np.count_nonzero(labels == 4))
+
+    fiber_n = (
+        oblique_n + transverse_n + longitudinal_n
+    )
+
+    def percent(n):
+        return float(100.0 * n / total)
+
+    return {
+        "sample": sample,
+        "input_file": input_file,
+        "method": "P60/P55 OR; DS1; YZ structure tensor",
+        "downsample_factor": 1,
+        "fixed_angle_tolerance_deg": tolerance_deg,
+        "original_shape": str(original_shape),
+        "analyzed_shape": str(labels.shape),
+
+        "excluded_black_or_void_percent":
+            percent(excluded_n),
+
+        "valid_dermis_percent":
+            percent(total - excluded_n),
+
+        "low_fiber_background_percent_total":
+            percent(background_n),
+
+        "fiber_candidate_percent_total":
+            percent(fiber_n),
+
+        "oblique_intermediate_percent_total":
+            percent(oblique_n),
+
+        "transverse_percent_total":
+            percent(transverse_n),
+
+        "longitudinal_percent_total":
+            percent(longitudinal_n),
+
+        "oblique_fraction_of_fiber_candidate_percent":
+            100.0 * oblique_n / fiber_n
+            if fiber_n else None,
+
+        "transverse_fraction_of_fiber_candidate_percent":
+            100.0 * transverse_n / fiber_n
+            if fiber_n else None,
+
+        "longitudinal_fraction_of_fiber_candidate_percent":
+            100.0 * longitudinal_n / fiber_n
+            if fiber_n else None,
+
+        "transverse_to_longitudinal_ratio":
+            transverse_n / longitudinal_n
+            if longitudinal_n else None,
+
+        "longitudinal_to_transverse_ratio":
+            longitudinal_n / transverse_n
+            if transverse_n else None,
+
+        "mean_orientation_coherence_in_fiber":
+            float(np.mean(coherence[labels >= 2]))
+            if fiber_n else None,
+
+        "alignment_imbalance_index_abs_L_minus_T_over_fiber":
+            abs(longitudinal_n - transverse_n) / fiber_n
+            if fiber_n else None,
     }
-    with (outdir / "metrics.csv").open("w", newline="", encoding="utf8") as f:
-        writer = csv.DictWriter(f, fieldnames=row.keys()); writer.writeheader(); writer.writerow(row)
-    (outdir / "provenance.json").write_text(json.dumps(row, indent=2, ensure_ascii=False, allow_nan=False), encoding="utf8")
-    if save_labels:
-        write_uint8_nrrd(outdir / "orientation_classes_XYZ.nrrd", labels, header, ds)
-        write_uint8_nrrd(outdir / "fibrous_candidate_mask_XYZ.nrrd", fibrous, header, ds)
-        write_uint8_nrrd(outdir / "valid_tissue_mask_XYZ.nrrd", valid, header, ds)
-    if qc:
-        save_qc(outdir / "QC_real_voxels.png", normalized, labels,
-                str(settings["plane"]), sample or path.stem, profile)
-    return row
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--input", required=True, type=Path, help="Single-file NRRD source ROI")
-    parser.add_argument("--outdir", required=True, type=Path)
-    parser.add_argument("--sample", default="")
-    parser.add_argument("--profile", choices=list(PROFILES), default="p60p55-ds1")
-    parser.add_argument("--qc", action="store_true", help="Generate actual-voxel QC PNG (requires matplotlib)")
-    parser.add_argument("--save-labels", action="store_true", help="Write masks and labels as geometry-preserving NRRDs")
-    args = parser.parse_args()
-    result = analyze(args.input, args.outdir, args.profile,
-                     sample=args.sample, qc=args.qc, save_labels=args.save_labels)
-    print(json.dumps({key: result[key] for key in (
-        "profile", "fibrous_candidate_percent", "oblique_percent",
-        "row_axis_percent", "column_axis_percent", "row_over_column_ratio",
-        "mean_coherence_fibrous")}, ensure_ascii=False, indent=2))
+def process_high_res(
+    input_path: Path,
+    outdir: Path,
+    config: HighResConfig,
+    sample: str = "sample",
+) -> dict:
+    """Run the manuscript high-resolution analysis."""
 
+    input_path = Path(input_path)
+    outdir = Path(outdir)
 
-if __name__ == "__main__":
-    main()
+    if config.downsample != 1:
+        raise ValueError(
+            "High-resolution manuscript analysis requires DS1"
+        )
+
+    if (
+        config.p_intensity != 60.0
+        or config.texture_percentile != 55.0
+    ):
+        raise ValueError(
+            "The manuscript profile requires P60/P55"
+        )
+
+    outdir.mkdir(parents=True, exist_ok=True)
+
+    volume = read_nrrd(input_path)
+
+    original = volume.data
+    header = volume.header
+
+    if original.ndim != 3:
+        raise ValueError("Input must be a 3D NRRD volume")
+
+    verify_image_axes(header)
+
+    vol01, norm_low, norm_high = robust_normalize01(
+        original,
+        NORM_PERCENTILE_LOW,
+        NORM_PERCENTILE_HIGH,
+    )
+
+    black_threshold = float(
+        np.percentile(vol01, config.black_percentile)
+    )
+
+    valid_mask = vol01 > black_threshold
+
+    fiber_mask = fibrous_candidate_mask(
+        vol01,
+        valid_mask,
+        intensity_percentile=config.p_intensity,
+        texture_percentile=config.texture_percentile,
+    )
+
+    angle, coherence, labels = estimate_orientation_volume(
+        vol01,
+        fiber_mask,
+        valid_mask,
+        tolerance_deg=config.angle_tolerance,
+        sigma_gradient=config.sigma_gradient,
+        sigma_tensor=config.sigma_tensor,
+    )
+
+    stem = safe_output_stem(sample)
+
+    outputs = {
+        f"{stem}_fiber_candidate_ds1_uint8.nrrd":
+            fiber_mask.astype(np.uint8),
+
+        f"{stem}_valid_tissue_ds1_uint8.nrrd":
+            valid_mask.astype(np.uint8),
+
+        f"{stem}_fixed_angle_orientation_class_labels_ds1_uint8.nrrd":
+            labels,
+
+        f"{stem}_structure_tensor_angle_deg_ds1_float32.nrrd":
+            angle,
+
+        f"{stem}_structure_tensor_coherence_ds1_float32.nrrd":
+            coherence,
+    }
+
+    for filename, array in outputs.items():
+        write_nrrd(
+            outdir / filename,
+            array,
+            header,
+            encoding=config.nrrd_encoding,
+        )
+
+    metrics = compute_orientation_metrics(
+        labels,
+        coherence,
+        sample=sample,
+        input_file=input_path.name,
+        tolerance_deg=config.angle_tolerance,
+        original_shape=tuple(original.shape),
+    )
+
+    metrics_path = (
+        outdir
+        / f"{stem}_fixed_angle_orientation_class_metrics.csv"
+    )
+
+    write_metrics_csv(metrics_path, metrics)
+
+    # A scale bar is drawn only with verified voxel size.
+    if (
+        config.voxel_size_um is not None
+        and config.voxel_size_um > 0
+    ):
+        save_orientation_dashboard(
+            outdir
+            / f"{stem}_fixed_angle_orientation_class_fastQC_dashboard.png",
+            vol01=vol01,
+            labels=labels,
+            metrics=metrics,
+            title=f"{sample} | YZ image-coordinate orientation",
+            voxel_size_um=config.voxel_size_um,
+            scale_bar_um=config.scale_bar_um,
+        )
+
+    metadata = {
+        "input_file": str(input_path),
+        "mode": "high-res",
+        "sample": sample,
+        "original_shape": tuple(int(x) for x in original.shape),
+        "analyzed_shape": tuple(int(x) for x in labels.shape),
+        "normalization_percentile_clip": [
+            NORM_PERCENTILE_LOW,
+            NORM_PERCENTILE_HIGH,
+        ],
+        "normalization_clip_values": [
+            float(norm_low),
+            float(norm_high),
+        ],
+        "black_threshold": black_threshold,
+        "scientific_label": HIGH_RES_SCIENTIFIC_LABEL,
+        "important_limitation": HIGH_RES_LIMITATION,
+        "config": asdict(config),
+        "metrics": metrics,
+    }
+
+    write_json_metadata(
+        outdir
+        / f"{stem}_fixed_angle_orientation_metadata.json",
+        metadata,
+    )
+
+    readme = f"""High-resolution orientation method summary
+================================================
+
+Input: {input_path.name}
+Sample: {sample}
+
+Processing settings:
+- Original resolution: DS1
+- No rotation or reorientation
+- Intensity normalization: P1/P99
+- Valid tissue: normalized intensity > ROI P7
+- Intensity threshold: P60
+- Texture threshold: P55
+- Texture: 3x3x3 local intensity standard deviation
+- Segmentation: valid AND (intensity >= P60 OR texture >= P55)
+- No weighted score
+- No connected-component or morphological filtering
+- Tensor planes: YZ slices along X
+- Sigma gradient: {config.sigma_gradient}
+- Sigma tensor: {config.sigma_tensor}
+- Angle tolerance: +/-{config.angle_tolerance} degrees
+- Longitudinal: Y image axis
+- Transverse: Z image axis
+- Denominator: all original ROI voxels
+- Orientation classes are not verified anatomical directions
+
+Primary metrics:
+- Fiber candidate: {metrics['fiber_candidate_percent_total']:.4f}%
+- Oblique: {metrics['oblique_intermediate_percent_total']:.4f}%
+- Transverse: {metrics['transverse_percent_total']:.4f}%
+- Longitudinal: {metrics['longitudinal_percent_total']:.4f}%
+- L/T ratio: {metrics['longitudinal_to_transverse_ratio']}
+- Mean coherence: {metrics['mean_orientation_coherence_in_fiber']}
+"""
+
+    write_text_readme(
+        outdir
+        / f"README_{stem}_fixed_angle_orientation_method.txt",
+        readme,
+    )
+
+    zip_output_directory(outdir)
+
+    LOGGER.info(
+        "High-resolution P60/P55 DS1 completed: %s",
+        outdir,
+    )
+
+    return metadata
+
